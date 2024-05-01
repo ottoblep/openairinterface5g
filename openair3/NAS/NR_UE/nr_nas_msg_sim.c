@@ -451,7 +451,7 @@ void generateRegistrationRequest(as_nas_info_t *initialNasMsg, nr_ue_nas_t *nas)
     size += fill_suci(&mm_msg->registration_request.fgsmobileidentity, nas->uicc);
   }
 
-#if 0
+#if 1
   /* This cannot be sent in clear, the core network Open5GS rejects the UE.
    * TODO: do we have to send this at some point?
    * For the time being, let's keep it here for later proper fix.
