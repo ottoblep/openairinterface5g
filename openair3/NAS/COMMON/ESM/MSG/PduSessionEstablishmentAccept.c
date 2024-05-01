@@ -179,8 +179,8 @@ void capture_pdu_session_establishment_accept_msg(uint8_t *buffer, uint32_t msg_
         break;
 
       default:
-        LOG_T(NAS, "PDU SESSION ESTABLISHMENT ACCEPT - Not known IE\n");
-        curPtr = buffer + msg_length; // we force stop processing
+        LOG_T(NAS, "PDU SESSION ESTABLISHMENT ACCEPT - Not known IE %d. Trying to skip ahead.\n", psea_iei);
+        curPtr++;
         break;
     }
   }
