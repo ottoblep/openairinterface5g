@@ -1,0 +1,11 @@
+FROM golang:1.18.10-bullseye AS tt-build
+
+# DS-TT
+COPY ./go-tt /go-tt
+WORKDIR /go-tt
+RUN go build
+
+FROM oai-nr-ue as oai-nr-ue-dstt
+
+# Copy the ds-tt from the builder stage
+COPY --from=tt-build /go-tt/go-tt /go-tt/go-tt
