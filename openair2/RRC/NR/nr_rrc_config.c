@@ -36,6 +36,8 @@
 #include "oai_asn1.h"
 #include "SIMULATION/TOOLS/sim.h" // for taus();
 
+#include "NR_MeasurementTimingConfiguration.h"
+
 #include "uper_decoder.h"
 #include "uper_encoder.h"
 
@@ -526,18 +528,12 @@ void set_dl_maxmimolayers(NR_PDSCH_ServingCellConfig_t *pdsch_servingcellconfig,
 
   NR_FeatureSets_t *fs = uecap ? uecap->featureSets : NULL;
   if (fs) {
-    const int bw_index = get_supported_band_index(scs, freq_range, bw_size);
-    AssertFatal(bw_index >= 0, "BW corresponding to %d PRBs not found\n", bw_size);
+    const int bw_mhz = get_supported_bw_mhz(freq_range, scs, bw_size);
     // go through UL feature sets and look for one with current SCS
     for (int i = 0; i < fs->featureSetsDownlinkPerCC->list.count; i++) {
       NR_FeatureSetDownlinkPerCC_t *dl_fs = fs->featureSetsDownlinkPerCC->list.array[i];
-      long supported_bw;
-      if (freq_range == FR1)
-        supported_bw = dl_fs->supportedBandwidthDL.choice.fr1;
-      else
-        supported_bw = dl_fs->supportedBandwidthDL.choice.fr2;
       if (scs == dl_fs->supportedSubcarrierSpacingDL &&
-          bw_index == supported_bw &&
+          supported_bw_comparison(bw_mhz, &dl_fs->supportedBandwidthDL, dl_fs->channelBW_90mhz) &&
           dl_fs->maxNumberMIMO_LayersPDSCH) {
         long ue_supported_layers = (2 << *dl_fs->maxNumberMIMO_LayersPDSCH);
         *pdsch_servingcellconfig->ext1->maxMIMO_Layers = NR_MAX_SUPPORTED_DL_LAYERS < ue_supported_layers ? NR_MAX_SUPPORTED_DL_LAYERS : ue_supported_layers;
@@ -776,38 +772,42 @@ void prepare_sim_uecap(NR_UE_NR_Capability_t *cap,
                        int numerology,
                        int rbsize,
                        int mcs_table_dl,
-                       int mcs_table_ul) {
-
+                       int mcs_table_ul)
+{
   NR_Phy_Parameters_t *phy_Parameters = &cap->phy_Parameters;
   int band = *scc->downlinkConfigCommon->frequencyInfoDL->frequencyBandList.list.array[0];
-  NR_BandNR_t *nr_bandnr = CALLOC(1,sizeof(NR_BandNR_t));
+  NR_BandNR_t *nr_bandnr = calloc(1, sizeof(NR_BandNR_t));
   nr_bandnr->bandNR = band;
   asn1cSeqAdd(&cap->rf_Parameters.supportedBandListNR.list,
                    nr_bandnr);
   NR_BandNR_t *bandNRinfo = cap->rf_Parameters.supportedBandListNR.list.array[0];
 
   if (mcs_table_ul == 1) {
-    bandNRinfo->pusch_256QAM = CALLOC(1,sizeof(*bandNRinfo->pusch_256QAM));
+    bandNRinfo->pusch_256QAM = calloc(1,sizeof(*bandNRinfo->pusch_256QAM));
     *bandNRinfo->pusch_256QAM = NR_BandNR__pusch_256QAM_supported;
   }
   if (mcs_table_dl == 1) {
     const frequency_range_t freq_range = band < 257 ? FR1 : FR2;
-    int bw = get_supported_band_index(numerology, freq_range, rbsize);
     if (freq_range == FR2) {
-      bandNRinfo->pdsch_256QAM_FR2 = CALLOC(1,sizeof(*bandNRinfo->pdsch_256QAM_FR2));
+      bandNRinfo->pdsch_256QAM_FR2 = calloc(1, sizeof(*bandNRinfo->pdsch_256QAM_FR2));
       *bandNRinfo->pdsch_256QAM_FR2 = NR_BandNR__pdsch_256QAM_FR2_supported;
     }
     else{
-      phy_Parameters->phy_ParametersFR1 = CALLOC(1,sizeof(*phy_Parameters->phy_ParametersFR1));
+      phy_Parameters->phy_ParametersFR1 = calloc(1, sizeof(*phy_Parameters->phy_ParametersFR1));
       NR_Phy_ParametersFR1_t *phy_fr1 = phy_Parameters->phy_ParametersFR1;
-      phy_fr1->pdsch_256QAM_FR1 = CALLOC(1,sizeof(*phy_fr1->pdsch_256QAM_FR1));
+      phy_fr1->pdsch_256QAM_FR1 = calloc(1, sizeof(*phy_fr1->pdsch_256QAM_FR1));
       *phy_fr1->pdsch_256QAM_FR1 = NR_Phy_ParametersFR1__pdsch_256QAM_FR1_supported;
     }
-    cap->featureSets = CALLOC(1,sizeof(*cap->featureSets));
+    cap->featureSets = calloc(1, sizeof(*cap->featureSets));
     NR_FeatureSets_t *fs=cap->featureSets;
-    fs->featureSetsDownlinkPerCC = CALLOC(1,sizeof(*fs->featureSetsDownlinkPerCC));
-    NR_FeatureSetDownlinkPerCC_t *fs_cc = CALLOC(1,sizeof(NR_FeatureSetDownlinkPerCC_t));
+    fs->featureSetsDownlinkPerCC = calloc(1, sizeof(*fs->featureSetsDownlinkPerCC));
+    NR_FeatureSetDownlinkPerCC_t *fs_cc = calloc(1, sizeof(*fs_cc));
     fs_cc->supportedSubcarrierSpacingDL = numerology;
+    int bw = get_supported_band_index(numerology, freq_range, rbsize);
+    if (bw == 10) // 90MHz
+      fs_cc->channelBW_90mhz = calloc(1, sizeof(*fs_cc->channelBW_90mhz));
+    if (bw == 11) // 100MHz
+      bw--;
     if(freq_range == FR2) {
       fs_cc->supportedBandwidthDL.present = NR_SupportedBandwidth_PR_fr2;
       fs_cc->supportedBandwidthDL.choice.fr2 = bw;
@@ -816,12 +816,12 @@ void prepare_sim_uecap(NR_UE_NR_Capability_t *cap,
       fs_cc->supportedBandwidthDL.present = NR_SupportedBandwidth_PR_fr1;
       fs_cc->supportedBandwidthDL.choice.fr1 = bw;
     }
-    fs_cc->supportedModulationOrderDL = CALLOC(1,sizeof(*fs_cc->supportedModulationOrderDL));
+    fs_cc->supportedModulationOrderDL = calloc(1, sizeof(*fs_cc->supportedModulationOrderDL));
     *fs_cc->supportedModulationOrderDL = NR_ModulationOrder_qam256;
     asn1cSeqAdd(&fs->featureSetsDownlinkPerCC->list, fs_cc);
   }
 
-  phy_Parameters->phy_ParametersFRX_Diff = CALLOC(1,sizeof(*phy_Parameters->phy_ParametersFRX_Diff));
+  phy_Parameters->phy_ParametersFRX_Diff = calloc(1, sizeof(*phy_Parameters->phy_ParametersFRX_Diff));
   phy_Parameters->phy_ParametersFRX_Diff->pucch_F0_2WithoutFH = NULL;
 }
 
@@ -1200,6 +1200,7 @@ static void set_dl_mcs_table(int scs,
 }
 
 static struct NR_SetupRelease_PUSCH_Config *config_pusch(NR_PUSCH_Config_t *pusch_Config,
+							 const bool use_deltaMCS,
                                                          const NR_ServingCellConfigCommon_t *scc,
                                                          const NR_UE_NR_Capability_t *uecap)
 {
@@ -1256,9 +1257,12 @@ static struct NR_SetupRelease_PUSCH_Config *config_pusch(NR_PUSCH_Config_t *pusc
   asn1cSeqAdd(&pusch_Config->pusch_PowerControl->pathlossReferenceRSToAddModList->list, plrefRS);
   pusch_Config->pusch_PowerControl->pathlossReferenceRSToReleaseList = NULL;
   pusch_Config->pusch_PowerControl->twoPUSCH_PC_AdjustmentStates = NULL;
-  if (!pusch_Config->pusch_PowerControl->deltaMCS)
-    pusch_Config->pusch_PowerControl->deltaMCS = calloc(1, sizeof(*pusch_Config->pusch_PowerControl->deltaMCS));
-  *pusch_Config->pusch_PowerControl->deltaMCS = NR_PUSCH_PowerControl__deltaMCS_enabled;
+  if (use_deltaMCS) {
+    if (!pusch_Config->pusch_PowerControl->deltaMCS)
+      pusch_Config->pusch_PowerControl->deltaMCS = calloc(1, sizeof(*pusch_Config->pusch_PowerControl->deltaMCS));
+    *pusch_Config->pusch_PowerControl->deltaMCS = NR_PUSCH_PowerControl__deltaMCS_enabled;
+  }
+  else free(pusch_Config->pusch_PowerControl->deltaMCS);
   pusch_Config->pusch_PowerControl->sri_PUSCH_MappingToAddModList = NULL;
   pusch_Config->pusch_PowerControl->sri_PUSCH_MappingToReleaseList = NULL;
   pusch_Config->frequencyHopping = NULL;
@@ -1470,7 +1474,7 @@ static void config_uplinkBWP(NR_BWP_Uplink_t *ubwp,
     pusch_Config = clone_pusch_config(servingcellconfigdedicated->uplinkConfig->uplinkBWP_ToAddModList->list.array[bwp_loop]
                                          ->bwp_Dedicated->pusch_Config->choice.setup);
   }
-  ubwp->bwp_Dedicated->pusch_Config = config_pusch(pusch_Config, scc, configuration->force_256qam_off ? NULL : uecap);
+  ubwp->bwp_Dedicated->pusch_Config = config_pusch(pusch_Config, configuration->use_deltaMCS, scc, configuration->force_UL256qam_off ? NULL : uecap);
 
   long maxMIMO_Layers = servingcellconfigdedicated &&
                                 servingcellconfigdedicated->uplinkConfig
@@ -1877,6 +1881,95 @@ int encode_MIB_NR(NR_BCCH_BCH_Message_t *mib, int frame, uint8_t *buf, int buf_s
   return (enc_rval.encoded + 7) / 8;
 }
 
+int encode_MIB_NR_setup(NR_MIB_t *mib, int frame, uint8_t *buf, int buf_size)
+{
+  DevAssert(mib != NULL);
+  uint8_t sfn_msb = (uint8_t)((frame >> 4) & 0x3f);
+  *mib->systemFrameNumber.buf = sfn_msb << 2;
+
+  asn_enc_rval_t enc_rval = uper_encode_to_buffer(&asn_DEF_NR_MIB, NULL, mib, buf, buf_size);
+  AssertFatal(enc_rval.encoded > 0, "ASN1 message encoding failed (%s, %lu)!\n", enc_rval.failed_type->name, enc_rval.encoded);
+  LOG_D(NR_RRC, "Encoded MIB for frame %d sfn_msb %d, bits %lu\n", frame, sfn_msb, enc_rval.encoded);
+  return (enc_rval.encoded + 7) / 8;
+}
+
+static struct NR_SSB_MTC__periodicityAndOffset get_SSB_MTC_periodicityAndOffset(long ssb_periodicityServingCell)
+{
+  struct NR_SSB_MTC__periodicityAndOffset po = {0};
+  switch (ssb_periodicityServingCell) {
+    case NR_ServingCellConfigCommon__ssb_periodicityServingCell_ms5:
+      po.present = NR_SSB_MTC__periodicityAndOffset_PR_sf5;
+      po.choice.sf5 = 0;
+      break;
+    case NR_ServingCellConfigCommon__ssb_periodicityServingCell_ms10:
+      po.present = NR_SSB_MTC__periodicityAndOffset_PR_sf10;
+      po.choice.sf10 = 0;
+      break;
+    case NR_ServingCellConfigCommon__ssb_periodicityServingCell_ms20:
+      po.present = NR_SSB_MTC__periodicityAndOffset_PR_sf20;
+      po.choice.sf20 = 0;
+      break;
+    case NR_ServingCellConfigCommon__ssb_periodicityServingCell_ms40:
+      po.present = NR_SSB_MTC__periodicityAndOffset_PR_sf40;
+      po.choice.sf40 = 0;
+      break;
+    case NR_ServingCellConfigCommon__ssb_periodicityServingCell_ms80:
+      po.present = NR_SSB_MTC__periodicityAndOffset_PR_sf80;
+      po.choice.sf80 = 0;
+      break;
+    case NR_ServingCellConfigCommon__ssb_periodicityServingCell_ms160:
+      po.present = NR_SSB_MTC__periodicityAndOffset_PR_sf160;
+      po.choice.sf160 = 0;
+      break;
+    default:
+      AssertFatal(false, "illegal ssb_periodicityServingCell %ld\n", ssb_periodicityServingCell);
+      break;
+  }
+  return po;
+}
+
+NR_MeasurementTimingConfiguration_t *get_new_MeasurementTimingConfiguration(const NR_ServingCellConfigCommon_t *scc)
+{
+  NR_MeasurementTimingConfiguration_t *mtc = calloc(1, sizeof(*mtc));
+  AssertFatal(mtc != NULL, "out of memory\n");
+  mtc->criticalExtensions.present = NR_MeasurementTimingConfiguration__criticalExtensions_PR_c1;
+  mtc->criticalExtensions.choice.c1 = calloc(1, sizeof(*mtc->criticalExtensions.choice.c1));
+  AssertFatal(mtc->criticalExtensions.choice.c1 != NULL, "out of memory\n");
+  mtc->criticalExtensions.choice.c1->present = NR_MeasurementTimingConfiguration__criticalExtensions__c1_PR_measTimingConf;
+  NR_MeasurementTimingConfiguration_IEs_t *mtc_ie = calloc(1, sizeof(*mtc_ie));
+  AssertFatal(mtc_ie != NULL, "out of memory\n");
+  mtc->criticalExtensions.choice.c1->choice.measTimingConf = mtc_ie;
+  mtc_ie->measTiming = calloc(1, sizeof(*mtc_ie->measTiming));
+  AssertFatal(mtc_ie->measTiming != NULL, "out of memory\n");
+
+  asn1cSequenceAdd(mtc_ie->measTiming->list, NR_MeasTiming_t, mt);
+  AssertFatal(mt != NULL, "out of memory\n");
+  mt->frequencyAndTiming = calloc(1, sizeof(*mt->frequencyAndTiming));
+  AssertFatal(mt->frequencyAndTiming != NULL, "out of memory\n");
+  mt->frequencyAndTiming->carrierFreq = *scc->downlinkConfigCommon->frequencyInfoDL->absoluteFrequencySSB;
+  mt->frequencyAndTiming->ssbSubcarrierSpacing = *scc->ssbSubcarrierSpacing;
+
+  NR_SSB_MTC_t *ssb_mtc = &mt->frequencyAndTiming->ssb_MeasurementTimingConfiguration;
+  ssb_mtc->duration = NR_SSB_MTC__duration_sf1;
+  ssb_mtc->periodicityAndOffset = get_SSB_MTC_periodicityAndOffset(*scc->ssb_periodicityServingCell);
+
+  return mtc;
+}
+
+int encode_MeasurementTimingConfiguration(const struct NR_MeasurementTimingConfiguration *mtc, uint8_t *buf, int buf_len)
+{
+  DevAssert(mtc != NULL);
+  xer_fprint(stdout, &asn_DEF_NR_MeasurementTimingConfiguration, mtc);
+  asn_enc_rval_t enc_rval = uper_encode_to_buffer(&asn_DEF_NR_MeasurementTimingConfiguration, NULL, mtc, buf, buf_len);
+  AssertFatal(enc_rval.encoded > 0, "ASN1 message encoding failed (%s, %lu)!\n", enc_rval.failed_type->name, enc_rval.encoded);
+  return (enc_rval.encoded + 7) / 8;
+}
+
+void free_MeasurementTimingConfiguration(NR_MeasurementTimingConfiguration_t *mtc)
+{
+  ASN_STRUCT_FREE(asn_DEF_NR_MeasurementTimingConfiguration, mtc);
+}
+
 NR_BCCH_DL_SCH_Message_t *get_SIB1_NR(const NR_ServingCellConfigCommon_t *scc, const f1ap_plmn_t *plmn, uint64_t cellID, int tac)
 {
   AssertFatal(cellID < (1l << 36), "cellID must fit within 36 bits, but is %lu\n", cellID);
@@ -2252,7 +2345,7 @@ static NR_SpCellConfig_t *get_initial_SpCellConfig(int uid,
   config_pucch_resset1(pucch_Config, NULL);
   set_pucch_power_config(pucch_Config, configuration->do_CSIRS);
 
-  initialUplinkBWP->pusch_Config = config_pusch(NULL, scc, NULL);
+  initialUplinkBWP->pusch_Config = config_pusch(NULL, configuration->use_deltaMCS, scc, NULL);
 
   long maxMIMO_Layers = uplinkConfig && uplinkConfig->pusch_ServingCellConfig
                                 && uplinkConfig->pusch_ServingCellConfig->choice.setup->ext1
@@ -2576,7 +2669,7 @@ void update_cellGroupConfig(NR_CellGroupConfig_t *cellGroupConfig,
                    scc);
 
   NR_BWP_UplinkDedicated_t *ul_bwp_Dedicated = SpCellConfig->spCellConfigDedicated->uplinkConfig->initialUplinkBWP;
-  set_ul_mcs_table(configuration->force_256qam_off ? NULL : uecap, scc, ul_bwp_Dedicated->pusch_Config->choice.setup);
+  set_ul_mcs_table(configuration->force_UL256qam_off ? NULL : uecap, scc, ul_bwp_Dedicated->pusch_Config->choice.setup);
 
   struct NR_ServingCellConfig__downlinkBWP_ToAddModList *DL_BWP_list =
       SpCellConfig->spCellConfigDedicated->downlinkBWP_ToAddModList;
@@ -2594,7 +2687,7 @@ void update_cellGroupConfig(NR_CellGroupConfig_t *cellGroupConfig,
       int bwp_size = NRRIV2BW(ul_bwp->bwp_Common->genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
       if (ul_bwp->bwp_Dedicated->pusch_Config) {
         NR_PUSCH_Config_t *pusch_Config = ul_bwp->bwp_Dedicated->pusch_Config->choice.setup;
-        set_ul_mcs_table(configuration->force_256qam_off ? NULL : uecap, scc, pusch_Config);
+        set_ul_mcs_table(configuration->force_UL256qam_off ? NULL : uecap, scc, pusch_Config);
         if (pusch_Config->maxRank == NULL) {
           pusch_Config->maxRank = calloc(1, sizeof(*pusch_Config->maxRank));
         }
@@ -2789,7 +2882,7 @@ NR_CellGroupConfig_t *get_default_secondaryCellGroup(const NR_ServingCellConfigC
     pusch_Config = clone_pusch_config(
         servingcellconfigdedicated->uplinkConfig->uplinkBWP_ToAddModList->list.array[0]->bwp_Dedicated->pusch_Config->choice.setup);
   }
-  initialUplinkBWP->pusch_Config = config_pusch(pusch_Config, servingcellconfigcommon, uecap);
+  initialUplinkBWP->pusch_Config = config_pusch(pusch_Config, configuration->use_deltaMCS,servingcellconfigcommon, uecap);
 
   long maxMIMO_Layers =
       servingcellconfigdedicated->uplinkConfig && servingcellconfigdedicated->uplinkConfig->pusch_ServingCellConfig

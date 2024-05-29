@@ -105,7 +105,6 @@ int get_supported_band_index(int scs, frequency_range_t freq_range, int n_rbs)
   return (-1); // not found
 }
 
-
 // Table 5.2-1 NR operating bands in FR1 & FR2 (3GPP TS 38.101)
 // Table 5.4.2.3-1 Applicable NR-ARFCN per operating band in FR1 & FR2 (3GPP TS 38.101)
 // Notes:
@@ -119,10 +118,12 @@ const nr_bandentry_t nr_bandtable[] = {
   {5,    824000,  849000,  869000,  894000, 20, 173800, 100},
   {7,   2500000, 2570000, 2620000, 2690000, 20, 524000, 100},
   {8,    880000,  915000,  925000,  960000, 20, 185000, 100},
-  {12,   698000,  716000,  729000,  746000, 20, 145800, 100},
+  {12,   699000,  716000,  729000,  746000, 20, 145800, 100},
+  {13,   777000,  787000,  746000,  756000, 20, 149200, 100},
   {14,   788000,  798000,  758000,  768000, 20, 151600, 100},
   {18,   815000,  830000,  860000,  875000, 20, 172000, 100},
   {20,   832000,  862000,  791000,  821000, 20, 158200, 100},
+  {24,  1627500, 1656500, 1526000, 1536000, 20, 305000, 100},
   {25,  1850000, 1915000, 1930000, 1995000, 20, 386000, 100},
   {26,   814000,  849000,  859000,  894000, 20, 171800, 100},
   {28,   703000,  758000,  758000,  813000, 20, 151600, 100},
@@ -142,6 +143,7 @@ const nr_bandentry_t nr_bandtable[] = {
   {53,  2483500, 2495000, 2483500, 2495000, 20, 496700, 100},
   {65,  1920000, 2010000, 2110000, 2200000, 20, 422000, 100},
   {66,  1710000, 1780000, 2110000, 2200000, 20, 422000, 100},
+  {67,      000,     000,  738000,  758000, 20, 147600, 100},
   {70,  1695000, 1710000, 1995000, 2020000, 20, 399000, 100},
   {71,   663000,  698000,  617000,  652000, 20, 123400, 100},
   {74,  1427000, 1470000, 1475000, 1518000, 20, 295000, 100},
@@ -158,6 +160,7 @@ const nr_bandentry_t nr_bandtable[] = {
   {82,   832000,  862000,     000,     000, 20, 166400, 100},
   {83,   703000,  748000,     000,     000, 20, 140600, 100},
   {84,  1920000, 1980000,     000,     000, 20, 384000, 100},
+  {85,   698000,  716000,  728000,  746000, 20, 145600, 100},
   {86,  1710000, 1785000,     000,     000, 20, 342000, 100},
   {89,   824000,  849000,     000,     000, 20, 342000, 100},
   {90,  2496000, 2690000, 2496000, 2690000,  3, 499200,  15},
@@ -179,8 +182,9 @@ const nr_bandentry_t nr_bandtable[] = {
   {261,27500040,28350000,27500040,28350000,  2,2070833, 120}
 };
 
-int get_supported_bw_mhz(frequency_range_t frequency_range, int bw_index)
+int get_supported_bw_mhz(frequency_range_t frequency_range, int scs, int nb_rb)
 {
+  int bw_index = get_supported_band_index(scs, frequency_range, nb_rb);
   if (frequency_range == FR1) {
     switch (bw_index) {
       case 0 :
@@ -232,8 +236,8 @@ bool compare_relative_ul_channel_bw(int nr_band, int scs, int nb_ul, frame_type_
   // 38.101-1 section 6.2.2
   // Relative channel bandwidth <= 4% for TDD bands and <= 3% for FDD bands
   int index = get_nr_table_idx(nr_band, scs);
-  int bw_index = get_supported_band_index(scs, nr_band > 256 ? FR2 : FR1, nb_ul);
-  int band_size_khz = get_supported_bw_mhz(nr_band > 256 ? FR2 : FR1, bw_index) * 1000;
+
+  int band_size_khz = get_supported_bw_mhz(nr_band > 256 ? FR2 : FR1, scs, nb_ul) * 1000;
   float limit = frame_type == TDD ? 0.04 : 0.03;
   float rel_bw = (float) (2 * band_size_khz) / (float) (nr_bandtable[index].ul_max + nr_bandtable[index].ul_min);
   return rel_bw <= limit;
