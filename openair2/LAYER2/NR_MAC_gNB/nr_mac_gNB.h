@@ -128,6 +128,19 @@ typedef struct nr_pdsch_AntennaPorts_t {
   int XP;
 } nr_pdsch_AntennaPorts_t;
 
+typedef struct nr_mac_timers {
+  int sr_ProhibitTimer;
+  int sr_TransMax;
+  int sr_ProhibitTimer_v1700;
+  int t300;
+  int t301;
+  int t310;
+  int n310;
+  int t311;
+  int n311;
+  int t319;
+} nr_mac_timers_t;
+
 typedef struct nr_mac_config_t {
   int sib1_tda;
   nr_pdsch_AntennaPorts_t pdsch_AntennaPorts;
@@ -138,8 +151,10 @@ typedef struct nr_mac_config_t {
   bool force_256qam_off;
   bool force_UL256qam_off;
   bool use_deltaMCS;
+  int maxMIMO_layers;
   //int pusch_TargetSNRx10;
   //int pucch_TargetSNRx10;
+  nr_mac_timers_t timer_config;
 } nr_mac_config_t;
 
 typedef struct NR_preamble_ue {
@@ -421,7 +436,7 @@ typedef struct NR_sched_pdsch {
   int8_t dl_harq_pid;
 
   // pucch format allocation
-  uint8_t pucch_allocation;
+  uint16_t pucch_allocation;
 
   uint16_t pm_index;
   uint8_t nrOfLayers;
